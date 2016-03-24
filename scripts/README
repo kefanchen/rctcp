@@ -1,0 +1,14 @@
+install.sh
+	Run this script to depoy the mtcp.
+	The script must be change if the environment if different.
+	See the setup.sh Line636-674
+clean.sh
+	Clean the project.
+	For a clean commit without compiled binaries.
+setip.sh
+	Set the dpdk nic's ip
+	Just call it in the dpdk-2.0.0/tools
+setup.sh
+	used by install.sh
+	Changed from setup.sh in the dpdk-2.0.0/tools
+
