@@ -24,13 +24,34 @@ struct rtm_stat
 };
 
 #if TCP_OPT_SACK_ENABLED
-struct sack_entry
+//ckf mod
+struct sackblk
 {
-	uint32_t left_edge;
-	uint32_t right_edge;
-	uint32_t expire;
+	uint32_t start;
+	uint32_t end;
+//	uint32_t expire;
 };
 #endif /* TCP_OPT_SACK_ENABLED */
+
+//ckf add
+struct sackhole{
+	uint32_t start;
+	uint32_t end;
+	uint32_t rxmit;//next seq. no in this hole to be retransmitted
+	TAILQ_ENTRY(sackhole) scblink;//socreboared linkage
+};
+
+struct sackhint{
+	struct sackhole *nexthole;
+	int sack_bytes_rxmit; //sacked bytes which has been rxmitted
+	uint32_t last_sack_ack; //most recent/largest sacked ack seq
+
+	int ispare; //explicit pad for 64bit alignment
+	int sacked_bytes; //total sacked bytes reported by the sack option
+
+	uint32_t  _pad1[1]; //TBD
+	uint64_t  _pad[1]; //TBD
+};
 
 struct tcp_recv_vars
 {
@@ -58,11 +79,19 @@ struct tcp_recv_vars
 	uint32_t rttvar;		/* smoothed mdev_max */
 	uint32_t rtt_seq;		/* sequence number to update rttvar */
 
-#if TCP_OPT_SACK_ENABLED		/* currently not used */
-#define MAX_SACK_ENTRY 8
-	struct sack_entry sack_table[MAX_SACK_ENTRY];
-	uint8_t sacks:3;
-#endif /* TCP_OPT_SACK_ENABLED */
+//#if TCP_OPT_SACK_ENABLED		/* currently not used */
+//#define MAX_SACK_ENTRY 8
+//	struct sack_entry sack_table[MAX_SACK_ENTRY];
+//	uint8_t sacks:3;
+//#endif /* TCP_OPT_SACK_ENABLED */
+
+//****ckf,add sack
+ #define MAX_SACK_BLKS 4
+	struct sackblk sackblks[MAX_SACK_BLKS];
+	int sackblk_num;
+
+//****ckf,add sack
+
 
 	struct tcp_ring_buffer *rcvbuf;
 #if USE_SPIN_LOCK
@@ -150,6 +179,18 @@ struct tcp_send_vars
 	TAILQ_ENTRY(tcp_stream) snd_br_link;
 	pthread_cond_t write_cond;
 #endif
+
+	//ckf add,sack hole in send buffer
+#define MAX_HOLES 128	
+	int snd_numholes; //num of holes seen by sender
+	TAILQ_ENTRY(sackhole_head,sackhole) snd_holes; //sack scoreboard(sorted)
+	
+	uint32_t snd_fack; //last seq numer+1 sacked
+
+	struct sackhint sackhint; //SACK scoreboard hint
+
+	//ckf add,sack hole in send buffer
+
 };
 
 typedef struct tcp_stream
