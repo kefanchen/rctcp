@@ -40,6 +40,8 @@
 #define TCP_SEQ_GEQ(a,b)		((int32_t)((a)-(b)) >= 0)
 #define TCP_SEQ_BETWEEN(a,b,c)	(TCP_SEQ_GEQ(a,b) && TCP_SEQ_LEQ(a,c))
 
+#define	TCP_SEQ_MAX(a, b)	((TCP_SEQ_GT(a, b)) ? (a) : (b))
+#define	TCP_SEQ_MIN(a, b)	((TCP_SEQ_LT(a, b)) ? (a) : (b))
 /* convert timeval to timestamp (precision: 10us) */
 #define HZ						1000
 #define TIME_TICK				(1000000/HZ)		// in us

@@ -194,6 +194,7 @@ struct tcp_send_vars
 
 	struct sackhint sackhint; //SACK scoreboard hint
 
+	uint32_t snd_max; //last seq sent ,used in reocvery
 	//ckf add,sack hole in send buffer
 
 };

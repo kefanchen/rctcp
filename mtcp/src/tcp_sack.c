@@ -179,7 +179,234 @@ UpdateScoreBoard(struct tcp_stream* cur_stream,uint32_t ack_seq) {
 		sack_blocks[num_sack_blks++].end = ack_seq;/////attention
 	}
 
+	/*append received sack blocks which is non-contiguous
+	 * and above snd_nua
+	 * to sack_blocks[]
+	 */
+
 	 sndvar->sackhint.sacked_bytes = 0; //reset
 	 for(i=0; i<sackblk_num_peer; i++){
-		 
-	 }
+		sack = rcvvar->sackblks_from_peer[i];
+
+		if(TCP_SEQ_GT(sack.end,sack.start)&&
+				TCP_SEQ_GT(sack.start,sndvar->snd_una)&&
+				TCP_SEQ_GT(sack.start,ack_seq)&&
+				TCP_SEQ_LT(sack.start,sndvar->snd_max)&&
+				TCP_SEQ_GT(sack.end,sndvar->snd_una)&&
+				TCP_SEQ_LEQ(sack.end,sndvar->snd_max)&&
+				){
+			sack_blocks[num_sack_blks++] = sack;
+		sndvar->sackhint.sacked_bytes += (sack.end - sack.start);
+
+	 	}
+	}
+	/*return if snd.una is not andvanced and no valid 
+	 * SACK received
+	 */
+
+	 if(num_sack_blks == 0)
+		 return (sack_changed);
+
+	 /*sort the sack blocks so we can merge it with snd_holes
+	 */
+
+	for(i=0; i<num_sack_blks;i++){
+		for(j=i+1;j<num_sack_blks;j++){
+			if(TCP_SEQ_GT(sack_blocks[i].end,sack_blocks[j].end)){
+				sack = sack_blocks[i];
+				sack_blocks[i] = sack_blocks[j];
+				sack_blocks[j] = sack;
+			}
+
+		}
+	}
+
+	if(TAILQ_EMPTY(&sndvar->snd_holes))
+		sndvar->snd_fack = TCP_SEQ_MAX(sndvar->snd_una,ack_seq);
+
+	/*use incoming SACK to update/merge snd_holes
+	 */
+	sblkp = &sack_blocks[num_sack_blks-1];
+	sndvar->sackhint.last_sack_ack = sblkp->end;
+
+	//decide the last sack in sack_blocks
+
+	//the highest SACK block is beyond fack,apped new sack hole at tail
+	if(TCP_SEQ_LT(sndvar->snd_fack,sblkp->start)){
+		temp = InsertSACKHole(cur_stream,sndvar->snd_fack,sblkp->start,NULL);
+		if(temp != NULL){
+			sndvar->snd_fack = sblkp->end;
+			sblkp -- ;
+			sack_changed = 1;
+		}
+		else{
+			/*failed to add a new hole
+			 * skip sack blocks in the right 
+			 * of snd_fack,use remaing sack 
+			 * to update
+			 */
+			while(sblkp >= sack_blocks &&
+					TCP_SEQ_LT(sndvar->snd_fack,sblkp->start))
+				sblkp -- ;
+
+			if(sblkp >= sack_blocks &&
+					TCP_SEQ_LT(sndvar->snd_fack,sblkp->end))
+				sndvar->snd_fack = sblkp->end;
+		}
+	}
+
+	else if(TCP_SEQ_LT(sndvar->snd_fack,sblkp->end)){
+		//fack is in the middle of sblkp,adance fack
+		sndvar->snd_fack = sblkp->end;
+		sack_changed = 1;
+	}
+
+	assert(!TAILQ_EMPTY(&sndvar->snd_holes));
+
+	cur = TAILQ_LAST(&sndvar->snd_holes,sackhole_head);
+
+	//finaly, update the scoreboard
+	
+	while(sblkp >= sack_blocks && cur != NULL){
+		
+		if(TCP_SEQ_GEQ(sblkp->start,cur->end)){
+			sblkp--;
+			continue;
+		}
+
+		if(TCP_SEQ_LEQ(sblkp->end,cur->start)){
+			cur = TAILQ_PREV(cur,sackhole_head,scblink);
+			continue;
+		}
+
+		sndvar->sackhint.sack_bytes_rexmit -= (cur->rxmit - cur->start);
+		assert(sndvar->sackhint.sack_bytes_rexmit >= 0);
+
+		sack_changed = 1;
+
+		if(TCP_SEQ_LEQ(sblkp->start,cur->start)) {
+			
+			if(TCP_SEQ_GEQ(sblkp->end,cur->end)){
+			//sack the hole ,delete the hole
+			temp = cur;
+			cur = TAILQ_PREV(cur,sackhole_head,scblink);
+			RemoveSACKHole(cur_stream,temp);
+			
+			//the sack block may sack another hole
+			continue;
+			}
+			else{
+				cur->start = sblkp->end;
+				cur->rxmit = TCP_SEQ_MAX(cur->rxmit,cur->start);
+			}
+			
+		}
+		else {
+			
+			if(TCP_SEQ_GEQ(sblkp->end,cur->end)){
+
+				cur->end = sblkp->start;
+				cur->rxmit = TCP_SEQ_MIN(cur->rxmit,cur->end);
+			}
+			else{
+				
+				/* sack some data in the middle
+				 * of a hole,need to split the 
+				 * current hole
+				 */
+				temp = InsertSACKHole(cur_stream,sblkp->end,cur->end,cur);
+				if(temp != NULL){
+
+					if(TCP_SEQ_GT(cur->rxmit,temp->rxmit)){
+						temp->rxmit = cur->rxmit;
+						sndvar->sackhint.sack_bytes_rexmit +=
+							(temp->rxmit - temp->start);
+					}
+					cur->end = sblkp->start;
+					cur->rxmit = TCP_SEQ_MIN(cur->rxmit,cur->end);
+				}
+			}
+		}
+		
+		//for those who was rexmitted and just got sacked,exclude!
+		//they are no longer in flight
+		sndvar->sackhint.sack_bytes_rexmit += (cur->rxmit - cur=>start);
+
+		if(TCP_SEQ_LEQ(sblkp->start, cur->start))
+			cur = TAILQ_PREV(cur,sackhole_head,scblink);
+		else
+			sblkp -- ;
+
+	}
+
+	return (sack_changed);
+}
+
+// free all sack holes to clear scoreboard
+void
+FreeScoreBoard(struct tcp_stream* cur_stream){
+	struct sackhole* q;
+	struct tcp_send_vars* sndvar = cur_stream->sndvar;
+
+	while((q = TAILQ_FIRST(&sndvar->sndholes))!=NULL)
+		RemoveSACKHole(cur_stream,q);
+
+	assert(sndvar->snd_numholes == 0);
+	assert(sndvar->sackhint.nexthole == NULL);
+}
+
+//ckf  to do?
+/* partial ACK ?
+ */
+
+
+/*
+ * Returns the next hole to retransmit and the number of retransmitted bytes
+ * from the scoreboard.  We store both the next hole and the number of
+ * retransmitted bytes as hints (and recompute these on the fly upon SACK/ACK
+ * reception).  This avoids scoreboard traversals completely.
+ *
+ * The loop here will traverse *at most* one link.  Here's the argument.  For
+ * the loop to traverse more than 1 link before finding the next hole to
+ * retransmit, we would need to have at least 1 node following the current
+ * hint with (rxmit == end).  But, for all holes following the current hint,
+ * (start == rxmit), since we have not yet retransmitted from them.
+ * Therefore, in order to traverse more 1 link in the loop below, we need to
+ * have at least one node following the current hint with (start == rxmit ==
+ * end).  But that can't happen, (start == end) means that all the data in
+ * that hole has been sacked, in which case, the hole would have been removed
+ * from the scoreboard.
+ */
+
+struct sackhole*
+NextSegSack(struct tcp_stream* cur_stream,int *sack_bytes_rexmit){
+
+	struct sackhole* hole = NULL;
+	struct tcp_send_vars* sndvar = cur_stream->sndvar;
+
+	*sack_bytes_rexmit = sndvar->sackhint.sack_bytes_rexmit;
+	hole = sndvar->sackhint.nexthole;
+
+	if(hole == NULL || TCP_SEQ_LT(hole->rxmit,hole->end))
+		goto out;
+
+	while((hole = TAILQ_NEXT(hole,scblink))!= NULL){
+		if(TCP_SEQ_LT(hoel->rxmit,hole->end)){
+
+			sndvar->sackhint.nexthole = hole;
+			break;
+		}
+	}
+
+out:
+	return (hole);
+}
+
+
+/*
+ * After a timeout, the SACK list may be rebuilt.  This SACK information
+ * should be used to avoid retransmitting SACKed data.  This function
+ * traverses the SACK list to see if snd_nxt should be moved forward.
+ */
+void
+tcp_sack_adjust(struct tcp_stream * cur_stream)
