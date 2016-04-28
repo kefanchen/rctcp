@@ -118,12 +118,12 @@ ParseSACKOption(tcp_stream *cur_stream,
 				while (j < optlen - 2) {
 					left_edge = ntohl(*(uint32_t *)(tcpopt + i + j));
 					right_edge = ntohl(*(uint32_t *)(tcpopt + i + j + 4));
-
-					cur_stream->rcvvar->sack_table
-							[cur_stream->rcvvar->sacks].left_edge = left_edge;
-					cur_stream->rcvvar->sack_table
-							[cur_stream->rcvvar->sacks].right_edge = right_edge;
-					cur_stream->rcvvar->sacks++;
+		//ckf mod
+					cur_stream->rcvvar->sackblks_from_peer
+							[cur_stream->rcvvar->sackblk_num_peer].start = left_edge;
+					cur_stream->rcvvar->sackblks_from_peer
+							[cur_stream->rcvvar->sackblk_num_peer].end = right_edge;
+					cur_stream->rcvvar->sackblk_num_peer++;
 					j += 8;
 #if RTM_STAT
 					cur_stream->rstat->sack_cnt++;

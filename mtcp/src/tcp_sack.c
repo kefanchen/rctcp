@@ -105,3 +105,81 @@ AllocSACKHole(struct tcp_stream* cur_stream,uint32_t start,uint32_t end){
 	
 	return hole;
 }
+
+static void
+FreeSACKHole(struct tcp_stream* cur_stream,struct sackhole* hole){
+
+	free(hole);
+	hole = 0;
+
+	cur_stream->sndvar->snd_numholes -- ;
+	assert(cur_stream->sndvar->snd_numholes>=0);
+}
+
+
+static struct sackhole*
+InsertSACKHole(struct tcp_stream* cur_stream,uint32_t start,uint32_t end,
+		struct sackhole* after){
+	
+	struct sackhole* hole;
+	struct tcp_send_vars* sndvar = cur_stream->sndvar;
+
+	hole = AllocSACKHole(cur_stream,start,end);
+	if(hole == NULL)
+		return NULL;
+
+	if(after != NULL)
+		TAILQ_INSERT_AFTER(&sndvar->snd_holes,after,hole,scblink);
+	else
+		TAILQ_INSERT_TAIL(&sndvar->snd_holes,hole,scblink);
+
+	if(sndvar->sackhint.nexthole == NULL)
+		sndvar->sackhint.nexthole = hole;
+
+	return hole;
+}
+
+static void
+RemoveSACKHole(struct tcp_stream* cur_stream,struct sackhole* hole){
+	
+	struct tcp_send_vars* sndvar = cur_stream->sndvar;
+
+	if(sndvar->sackhint.nexthole == hole)
+		sndvar->sackhint.nexthole = TAILQ_NEXT(hole,scblink);
+
+	TAILQ_REMOVE(&sndvar->snd_holes,hole,scblink);
+	FreeSACKHole(cur_stream,hole);
+}
+
+/* update scoreboard--snd_holes(sorted list) when receive sack
+ * return 1 if incoming ack has previously unknown sack information
+ * 0 otherwise
+ * Note: We treat (snd_una, ack_seq) as a sack block so any changes
+ * to that (i.e. left edge moving) would also be considered a change in SACK
+ * information which is slightly different than rfc6675.
+ */
+UpdateScoreBoard(struct tcp_stream* cur_stream,uint32_t ack_seq) {
+	
+	struct sackhole* cur,* temp;
+	struct sackblk,sack_blocks[MAX_SACK_BLKS+1] *sblkp;
+	struct tcp_send_vars* sndvar = cur_stream->sndvar;
+	struct tcp_recv_vars* rcvvar = cur_stream->rcvvar;
+	int i, j, num_sack_blks, sack_changed;
+
+	num_sack_blks = 0;
+	sack_changed = 0;
+
+	/*if snd.una will be advanced by ack_seq,and if sack holes exist,
+	 * treat (snd_una,ack_seq) as if it is a sack blocks
+	 */
+
+	 if(TCP_SEQ_LT(sndvar->snd_una,ack_seq)&&
+			 !TAILQ_EMPTY(&sndvar->snd_holes)){//ckf attention,snd_una when to update?
+		sack_blocks[num_sack_blks].start = sndvar->snd_una;
+		sack_blocks[num_sack_blks++].end = ack_seq;/////attention
+	}
+
+	 sndvar->sackhint.sacked_bytes = 0; //reset
+	 for(i=0; i<sackblk_num_peer; i++){
+		 
+	 }

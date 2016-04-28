@@ -87,8 +87,13 @@ struct tcp_recv_vars
 
 //****ckf,add sack
  #define MAX_SACK_BLKS 4
+	//sack blks generated from own receive buffer
 	struct sackblk sackblks[MAX_SACK_BLKS];
 	int sackblk_num;
+
+	//sack blks parsed from received sack option
+	struct sackblk sackblks_from_peer[MAX_SACK_BLKS];
+	int sackblk_num_peer;
 
 //****ckf,add sack
 
@@ -183,7 +188,7 @@ struct tcp_send_vars
 	//ckf add,sack hole in send buffer
 #define MAX_HOLES 128	
 	int snd_numholes; //num of holes seen by sender
-	TAILQ_ENTRY(sackhole_head,sackhole) snd_holes; //sack scoreboard(sorted)
+	TAILQ_HEAD(sackhole_head,sackhole) snd_holes; //sack scoreboard(sorted)
 	
 	uint32_t snd_fack; //last seq numer+1 sacked
 
