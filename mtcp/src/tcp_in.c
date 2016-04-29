@@ -585,12 +585,24 @@ ProcessTCPPayload(mtcp_manager_t mtcp, tcp_stream *cur_stream,
 		RBRemove(mtcp->rbm_rcv, 
 				rcvvar->rcvbuf, rcvvar->rcvbuf->merged_len, AT_MTCP);
 	}
+
+	//ckf mod
+	/* if successively write data into receive buffer,
+	update  sackblks(used to send sack option)
+	*/
+	if(cur_stream->state ==  TCP_ST_ESTABLISHED && ret >0)
+		UpdateSACKBlks(cur_stream ,seq, seq + payloadlen ;)
+
 	cur_stream->rcv_nxt = rcvvar->rcvbuf->head_seq + rcvvar->rcvbuf->merged_len;
 	rcvvar->rcv_wnd = rcvvar->rcvbuf->size - 1 - rcvvar->rcvbuf->last_len;
 
 	SBUF_UNLOCK(&rcvvar->read_lock);
 
 	if (TCP_SEQ_LEQ(cur_stream->rcv_nxt, prev_rcv_nxt)) {
+		
+		//ckf mod 
+		//if  there exists gap in rcv buffer,generate sack
+		rcvvar->sack_on = 1;
 		/* There are some lost packets */
 		return FALSE;
 	}

@@ -705,15 +705,27 @@ WriteTCPACKList(mtcp_manager_t mtcp,
 
 			if (to_ack) {
 				/* send the queued ack packets */
-				while (cur_stream->sndvar->ack_cnt > 0) {
-					ret = SendTCPPacket(mtcp, cur_stream, 
+				//ckf mod
+				int i  = 0;
+				while (i <  cur_stream->sndvar->ack_cnt ) {
+
+					if(cur_stream->rcvvar->ack_cnt_to_sack_opt[i] == 1){
+						ret = SendTCPPacket(mtcp, cur_stream, 
+							cur_ts, TCP_FLAG_ACK|TCP_FLAG_SACK), NULL, 0);
+						cur_stream->rcvvar->ack_cnt_to_sack_opt[i] = 0;
+					}
+					else
+						ret = SendTCPPacket(mtcp, cur_stream, 
 							cur_ts, TCP_FLAG_ACK, NULL, 0);
+
+					
 					if (ret < 0) {
 						/* since there is no available write buffer, break */
 						break;
 					}
-					cur_stream->sndvar->ack_cnt--;
+					i++;
 				}
+				cur_stream->sndvar->ack_cnt = 0;
 
 				/* if is_wack is set, send packet to get window advertisement */
 				if (cur_stream->sndvar->is_wack) {
@@ -886,6 +898,37 @@ RemoveFromACKList(mtcp_manager_t mtcp, tcp_stream *cur_stream)
 	}
 }
 /*----------------------------------------------------------------------------*/
+
+//ckf  add 
+/*
+when there is gap in rcv buffer,sack  options which describe 
+the gaps must be generated(save from  sackblks)
+*/
+static inline void
+AddSACKOption(tcp_stream* cur_stream){
+	if(cur_stream->rcvvar->sack_on ==1){
+		struct sackoption* sackopt;
+		if(batched_sackoption_num < MAX_BATCHED_SACKOPTION){
+			cur_stream->rcvvar->sack_on = 0;
+			sackopt = (struct sackoption*)malloc(sizeof(struct sackoption));
+			if(sackopt){
+				memcpy(sackopt,cur_stream->rcvvar->sackblks,
+					sizeof(struct sackblk)*MAX_SACK_BLKS);
+				sackopt->sackblk_num = cur_stream->rcvvar->sackblk_num;
+				TAILQ_INSERT_TAIL(&cur_stream->rcvvar->batched_sackoptions,
+					sackopt,solink);
+				cur_stream->rcvvar->ack_cnt_to_sack_opt[cur_stream->sndvar->ack_cnt]
+				=1;
+
+			}
+		}
+		else
+			//print  error
+
+		cur_stream->rcvvar->sack_on = 0;
+	}
+}
+
 inline void 
 EnqueueACK(mtcp_manager_t mtcp, 
 		tcp_stream *cur_stream, uint32_t cur_ts, uint8_t opt)
@@ -900,7 +943,11 @@ EnqueueACK(mtcp_manager_t mtcp,
 
 	if (opt == ACK_OPT_NOW) {
 		if (cur_stream->sndvar->ack_cnt < cur_stream->sndvar->ack_cnt + 1) {
+			//ckf mod
+			AddSACKOption(cur_stream);
+
 			cur_stream->sndvar->ack_cnt++;
+			
 		}
 	} else if (opt == ACK_OPT_AGGREGATE) {
 		if (cur_stream->sndvar->ack_cnt == 0) {

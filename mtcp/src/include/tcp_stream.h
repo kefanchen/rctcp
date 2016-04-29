@@ -53,6 +53,13 @@ struct sackhint{
 	uint64_t  _pad[1]; //TBD
 };
 
+struct sackoption
+{
+	struct sackblk sackblks[MAX_SACK_BLKS];
+	int sackblk_num;
+	TAILQ_ENTRY(sackoptions)  solink;
+};
+
 struct tcp_recv_vars
 {
 	/* receiver variables */
@@ -88,8 +95,19 @@ struct tcp_recv_vars
 //****ckf,add sack
  #define MAX_SACK_BLKS 4
 	//sack blks generated from own receive buffer
+	uint8_t  sack_on; 	//1 if there are gaps in rcv buffer
 	struct sackblk sackblks[MAX_SACK_BLKS];
 	int sackblk_num;
+
+	//batched sackoption
+#define MAX_BATCHED_SACKOPTION 8
+	TAILQ_HEAD(sackoption_head,sackoption)  batched_sackoptions;
+	int batched_sackoption_num;
+	//uint64_t ack_cnt_to_sack_opt;
+	//bit map ,m th bit is 1 if  generate a sack option with m th ack
+#define MAX_ACK_CNT 64
+	uint8_t ack_cnt_to_sack_opt[MAX_ACK_CNT];
+
 
 	//sack blks parsed from received sack option
 	struct sackblk sackblks_from_peer[MAX_SACK_BLKS];
