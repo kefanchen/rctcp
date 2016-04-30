@@ -58,6 +58,66 @@ CalculateOptionLength(uint8_t flags)
 
 	return optlen;
 }
+
+//ckf add
+//only called by sendTCPPackets to send ack with sack
+static inline uint16_t
+CalculateOptionSACKLength(tcp_stream* cur_stream,uint8_t flags)
+{
+	uint16_t optlen = 0;
+
+	if (flags & TCP_FLAG_SYN) {
+		optlen += TCP_OPT_MSS_LEN;
+#if TCP_OPT_SACK_ENABLED
+		optlen += TCP_OPT_SACK_PERMIT_LEN;
+#if !TCP_OPT_TIMESTAMP_ENABLED
+		optlen += 2;	// insert NOP padding
+#endif /* TCP_OPT_TIMESTAMP_ENABLED */
+#endif /* TCP_OPT_SACK_ENABLED */
+
+#if TCP_OPT_TIMESTAMP_ENABLED
+		optlen += TCP_OPT_TIMESTAMP_LEN;
+#if !TCP_OPT_SACK_ENABLED
+		optlen += 2;	// insert NOP padding
+#endif /* TCP_OPT_SACK_ENABLED */
+#endif /* TCP_OPT_TIMESTAMP_ENABLED */
+
+		optlen += TCP_OPT_WSCALE_LEN + 1;
+
+	} else {
+
+#if TCP_OPT_TIMESTAMP_ENABLED
+		optlen += TCP_OPT_TIMESTAMP_LEN + 2;
+#endif
+
+#if TCP_OPT_SACK_ENABLED
+		if (flags & TCP_FLAG_SACK &&
+			!TAILQ_EMPTY(cur_stream->rcvvar->batched_sackoptions)) {
+			struct sackoption* sackopt = TAILQ_FIRST(cur_stream->rcvva->batched_sackoptions);
+			switch(sackopt->sackblk_num){
+				case 1:
+					optlen += TCP_OPT_SACK_LEN1 + 2;
+					break;
+				case 2:
+					optlen += TCP_OPT_SACK_LEN2 + 2;
+					break;
+				case 3:
+					optlen += TCP_OPT_SACK_LEN3 + 2;
+					break;
+
+			}
+
+		}
+#endif
+	}
+
+	assert(optlen % 4 == 0);
+
+	return optlen;
+}
+
+
+
 /*----------------------------------------------------------------------------*/
 static inline void
 GenerateTCPTimestamp(tcp_stream *cur_stream, uint8_t *tcpopt, uint32_t cur_ts)
@@ -71,7 +131,7 @@ GenerateTCPTimestamp(tcp_stream *cur_stream, uint8_t *tcpopt, uint32_t cur_ts)
 }
 
 //ckf add
-static inline void
+static inline int 
 GenerateSACKOption(tcp_stream* cur_stream,uint8_t* tcpopt){
 
 	if(cur_stream->rcvvar->batched_sackoption_num > 0&&
@@ -88,20 +148,21 @@ GenerateSACKOption(tcp_stream* cur_stream,uint8_t* tcpopt){
 			i++;
 		}
 
-		//if sack options num <3, then padding
-		// that is, the sack option len is always 26
-		if(i < 3){
-			tcpopt[2+i*8] = TCP_OPT_END;
-			//2016.4.30 12:15 ckf
-		}	
-			
-
 		TAILQ_REMOVE(&cur_stream->rcvvar->batched_sackoptions,sackopt,solink);
 		free(sack);
 		sack = 0;
 		cur_stream->rcvvar->batched_sackoption_num -- ;
+		switch(i){
+			case 1:
+				return TCP_OPT_SACK_LEN1 + 2;
+			case 2:
+				return TCP_OPT_SACK_LEN2 + 2;
+			case 3:
+				return TCP_OPT_SACK_LEN3 + 2;
 
+		}
 	}
+	return 0;
 }
 
 /*----------------------------------------------------------------------------*/
@@ -163,8 +224,7 @@ GenerateTCPOptions(tcp_stream *cur_stream, uint32_t cur_ts,
 			//ckf mod
 			tcpopt[i++] = TCP_OPT_NOP;
 			tcpopt[i++] = TCP_OPT_NOP;
-			GenerateSACKOption(cur_stream,tcpopt+i);
-			i += 
+			i += GenerateSACKOption(cur_stream,tcpopt+i);
 		}
 #endif
 	}
@@ -255,7 +315,12 @@ SendTCPPacket(struct mtcp_manager *mtcp, tcp_stream *cur_stream,
 	uint8_t wscale = 0;
 	uint32_t window32 = 0;
 
-	optlen = CalculateOptionLength(flags);
+	//ckf mod
+	if(flags & TCP_FLAG_SACK)
+		optlen = CalculateOptionSACKLength(cur_stream,flags);
+	else
+		optlen = CalculateOptionLength(flags);
+
 	if (payloadlen > cur_stream->sndvar->mss + optlen) {
 		TRACE_ERROR("Payload size exceeds MSS\n");
 		return ERROR;
