@@ -27,7 +27,9 @@
 #define TCP_OPT_MSS_LEN			4
 #define TCP_OPT_WSCALE_LEN		3
 #define TCP_OPT_SACK_PERMIT_LEN	2
-#define TCP_OPT_SACK_LEN		10
+//ckf mod each saxk option contains 3 sack blocks
+//#define TCP_OPT_SACK_LEN		10
+#define TCP_OPT_SACK_LEN		26
 #define TCP_OPT_TIMESTAMP_LEN	10
 
 #define TCP_DEFAULT_MSS			1460

@@ -69,6 +69,41 @@ GenerateTCPTimestamp(tcp_stream *cur_stream, uint8_t *tcpopt, uint32_t cur_ts)
 	ts[0] = htonl(cur_ts);
 	ts[1] = htonl(cur_stream->rcvvar->ts_recent);
 }
+
+//ckf add
+static inline void
+GenerateSACKOption(tcp_stream* cur_stream,uint8_t* tcpopt){
+
+	if(cur_stream->rcvvar->batched_sackoption_num > 0&&
+		!TAILQ_EMPTY(&cur_stream->rcvvar->batched_sackoptions)){
+		struct sackoption* sackopt = TAILQ_FIRST(&cur_stream->rcvvar->batched_sackoptions);	
+		uint32_t* edge = (uint32_t*)(tcpopt + 2);
+		int i = 0;
+		tcpopt[0] = TCP_OPT_SACK;
+		tcpopt[1] = TCP_OPT_SACK_LEN;
+		while(i < sackopt->sackblk_num){
+			edge[0 + (i << 1)] = htonl(sack->sackblks[i].start);
+			edge[1 + (i << 1)] = htonl(sack->sackblks[i].end);
+
+			i++;
+		}
+
+		//if sack options num <3, then padding
+		// that is, the sack option len is always 26
+		if(i < 3){
+			tcpopt[2+i*8] = TCP_OPT_END;
+			//2016.4.30 12:15 ckf
+		}	
+			
+
+		TAILQ_REMOVE(&cur_stream->rcvvar->batched_sackoptions,sackopt,solink);
+		free(sack);
+		sack = 0;
+		cur_stream->rcvvar->batched_sackoption_num -- ;
+
+	}
+}
+
 /*----------------------------------------------------------------------------*/
 static inline void
 GenerateTCPOptions(tcp_stream *cur_stream, uint32_t cur_ts, 
@@ -125,6 +160,11 @@ GenerateTCPOptions(tcp_stream *cur_stream, uint32_t cur_ts,
 #if TCP_OPT_SACK_ENABLED
 		if (flags & TCP_OPT_SACK) {
 			// TODO: implement SACK support
+			//ckf mod
+			tcpopt[i++] = TCP_OPT_NOP;
+			tcpopt[i++] = TCP_OPT_NOP;
+			GenerateSACKOption(cur_stream,tcpopt+i);
+			i += 
 		}
 #endif
 	}
@@ -905,7 +945,7 @@ when there is gap in rcv buffer,sack  options which describe
 the gaps must be generated(save from  sackblks)
 */
 static inline void
-AddSACKOption(tcp_stream* cur_stream){
+RecordSACKOption(tcp_stream* cur_stream){
 	if(cur_stream->rcvvar->sack_on ==1){
 		struct sackoption* sackopt;
 		if(batched_sackoption_num < MAX_BATCHED_SACKOPTION){
@@ -944,7 +984,7 @@ EnqueueACK(mtcp_manager_t mtcp,
 	if (opt == ACK_OPT_NOW) {
 		if (cur_stream->sndvar->ack_cnt < cur_stream->sndvar->ack_cnt + 1) {
 			//ckf mod
-			AddSACKOption(cur_stream);
+			RecordSACKOption(cur_stream);
 
 			cur_stream->sndvar->ack_cnt++;
 			
