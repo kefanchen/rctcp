@@ -437,6 +437,255 @@ ProcessACK(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_ts,
 #if TCP_OPT_SACK_ENABLED
 	ParseSACKOption(cur_stream, ack_seq, (uint8_t *)tcph + TCP_HEADER_LEN, 
 			(tcph->doff << 2) - TCP_HEADER_LEN);
+	
+#endif /* TCP_OPT_SACK_ENABLED */
+
+#if RECOVERY_AFTER_LOSS
+	/* updating snd_nxt (when recovered from loss) */
+	if (TCP_SEQ_GT(ack_seq, cur_stream->snd_nxt)) {
+#if RTM_STAT
+		sndvar->rstat.ack_upd_cnt++;
+		sndvar->rstat.ack_upd_bytes += (ack_seq - cur_stream->snd_nxt);
+#endif
+		TRACE_LOSS("Updating snd_nxt from %u to %u\n", 
+				cur_stream->snd_nxt, ack_seq);
+		cur_stream->snd_nxt = ack_seq;
+		if (sndvar->sndbuf->len == 0) {
+			RemoveFromSendList(mtcp, cur_stream);
+		}
+	}
+#endif
+
+	/* If ack_seq is previously acked, return */
+	if (TCP_SEQ_GEQ(sndvar->sndbuf->head_seq, ack_seq)) {
+		return;
+	}
+
+	/* Remove acked sequence from send buffer */
+	rmlen = ack_seq - sndvar->sndbuf->head_seq;
+	if (rmlen > 0) {
+		/* Routine goes here only if there is new payload (not retransmitted) */
+		uint16_t packets;
+
+		/* If acks new data */
+		packets = rmlen / sndvar->eff_mss;
+		if ((rmlen / sndvar->eff_mss) * sndvar->eff_mss > rmlen) {
+			packets++;
+		}
+		
+		/* Estimate RTT and calculate rto */
+		if (cur_stream->saw_timestamp) {
+			EstimateRTT(mtcp, cur_stream, 
+					cur_ts - cur_stream->rcvvar->ts_lastack_rcvd);
+			sndvar->rto = (cur_stream->rcvvar->srtt >> 3) + cur_stream->rcvvar->rttvar;
+			assert(sndvar->rto > 0);
+		} else {
+			//TODO: Need to implement timestamp estimation without timestamp
+			TRACE_RTT("NOT IMPLEMENTED.\n");
+		}
+
+		/* Update congestion control variables */
+		if (cur_stream->state >= TCP_ST_ESTABLISHED) {
+			if (sndvar->cwnd < sndvar->ssthresh) {
+				if ((sndvar->cwnd + sndvar->mss) > sndvar->cwnd) {
+					sndvar->cwnd += (sndvar->mss * packets);
+				}
+				TRACE_CONG("slow start cwnd: %u, ssthresh: %u\n", 
+						sndvar->cwnd, sndvar->ssthresh);
+			} else {
+				uint32_t new_cwnd = sndvar->cwnd + 
+						packets * sndvar->mss * sndvar->mss / 
+						sndvar->cwnd;
+				if (new_cwnd > sndvar->cwnd) {
+					sndvar->cwnd = new_cwnd;
+				}
+				//TRACE_CONG("congestion avoidance cwnd: %u, ssthresh: %u\n", 
+				//		sndvar->cwnd, sndvar->ssthresh);
+			}
+		}
+
+		if (SBUF_LOCK(&sndvar->write_lock)) {
+			if (errno == EDEADLK)
+				perror("ProcessACK: write_lock blocked\n");
+			assert(0);
+		}
+		ret = SBRemove(mtcp->rbm_snd, sndvar->sndbuf, rmlen);
+		sndvar->snd_una = ack_seq;
+		snd_wnd_prev = sndvar->snd_wnd;
+		sndvar->snd_wnd = sndvar->sndbuf->size - sndvar->sndbuf->len;
+
+		/* If there was no available sending window */
+		/* notify the newly available window to application */
+#if SELECTIVE_WRITE_EVENT_NOTIFY
+		if (snd_wnd_prev <= 0) {
+#endif /* SELECTIVE_WRITE_EVENT_NOTIFY */
+			RaiseWriteEvent(mtcp, cur_stream);
+#if SELECTIVE_WRITE_EVENT_NOTIFY
+		}
+#endif /* SELECTIVE_WRITE_EVENT_NOTIFY */
+
+		SBUF_UNLOCK(&sndvar->write_lock);
+		UpdateRetransmissionTimer(mtcp, cur_stream, cur_ts);
+	}
+
+	UNUSED(ret);
+}
+
+//ckf add
+/*----------------------------------------------------------------------------*/
+static inline void
+ProcessACK_SACK(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_ts, 
+		struct tcphdr *tcph, uint32_t seq, uint32_t ack_seq, 
+		uint16_t window, int payloadlen)
+{
+	struct tcp_send_vars *sndvar = cur_stream->sndvar;
+	uint32_t cwindow, cwindow_prev;
+	uint32_t rmlen;
+	uint32_t snd_wnd_prev;
+	uint32_t right_wnd_edge;
+	uint8_t dup;
+	int ret;
+	//ckf mod
+	int sackchanged = 0;
+
+	cwindow = window;
+	if (!tcph->syn) {
+		cwindow = cwindow << sndvar->wscale;
+	}
+	right_wnd_edge = sndvar->peer_wnd + cur_stream->rcvvar->snd_wl2;
+
+	/* If ack overs the sending buffer, return */
+	if (cur_stream->state == TCP_ST_FIN_WAIT_1 || 
+			cur_stream->state == TCP_ST_FIN_WAIT_2 ||
+			cur_stream->state == TCP_ST_CLOSING || 
+			cur_stream->state == TCP_ST_CLOSE_WAIT || 
+			cur_stream->state == TCP_ST_LAST_ACK) {
+		if (sndvar->is_fin_sent && ack_seq == sndvar->fss + 1) {
+			ack_seq--;
+		}
+	}
+	
+	if (TCP_SEQ_GT(ack_seq, sndvar->sndbuf->head_seq + sndvar->sndbuf->len)) {
+		TRACE_DBG("Stream %d (%s): invalid acknologement. "
+				"ack_seq: %u, possible max_ack_seq: %u\n", cur_stream->id, 
+				TCPStateToString(cur_stream), ack_seq, 
+				sndvar->sndbuf->head_seq + sndvar->sndbuf->len);
+		return;
+	}
+
+	/* Update window */
+	if (TCP_SEQ_LT(cur_stream->rcvvar->snd_wl1, seq) ||
+			(cur_stream->rcvvar->snd_wl1 == seq && 
+			TCP_SEQ_LT(cur_stream->rcvvar->snd_wl2, ack_seq)) ||
+			(cur_stream->rcvvar->snd_wl2 == ack_seq && 
+			cwindow > sndvar->peer_wnd)) {
+		cwindow_prev = sndvar->peer_wnd;
+		sndvar->peer_wnd = cwindow;
+		cur_stream->rcvvar->snd_wl1 = seq;
+		cur_stream->rcvvar->snd_wl2 = ack_seq;
+#if 0
+		TRACE_CLWND("Window update. "
+				"ack: %u, peer_wnd: %u, snd_nxt-snd_una: %u\n", 
+				ack_seq, cwindow, cur_stream->snd_nxt - sndvar->snd_una);
+#endif
+		if (cwindow_prev < cur_stream->snd_nxt - sndvar->snd_una && 
+				sndvar->peer_wnd >= cur_stream->snd_nxt - sndvar->snd_una) {
+			TRACE_CLWND("%u Broadcasting client window update! "
+					"ack_seq: %u, peer_wnd: %u (before: %u), "
+					"(snd_nxt - snd_una: %u)\n", 
+					cur_stream->id, ack_seq, sndvar->peer_wnd, cwindow_prev, 
+					cur_stream->snd_nxt - sndvar->snd_una);
+			RaiseWriteEvent(mtcp, cur_stream);
+		}
+	}
+
+	/* Check duplicated ack count */
+	/* Duplicated ack if 
+	   1) ack_seq is old
+	   2) payload length is 0.
+	   3) advertised window not changed.
+	   4) there is outstanding unacknowledged data
+	   5) ack_seq == snd_una
+	 */
+
+	dup = FALSE;
+	if (TCP_SEQ_LT(ack_seq, cur_stream->snd_nxt)) {
+		if (ack_seq == cur_stream->rcvvar->last_ack_seq && payloadlen == 0) {
+			if (cur_stream->rcvvar->snd_wl2 + sndvar->peer_wnd == right_wnd_edge) {
+				if (cur_stream->rcvvar->dup_acks + 1 > cur_stream->rcvvar->dup_acks) {
+					cur_stream->rcvvar->dup_acks++;
+				}
+				dup = TRUE;
+			}
+		}
+	}
+
+	//ckf mod
+	if(dup && cur_stream->sack_permit){
+		sackchanged = UpdateScoreBoard(cur_stream,ack_seq);
+		if(sackchanged == 0){
+			dup = FALSE;
+
+			if(cur_stream->rcvvar->dup_acks > 0)
+				cur_stream->rcvvar->dup_ack -- ;
+		}
+	}
+
+	if (!dup) {
+		cur_stream->rcvvar->dup_acks = 0;
+		cur_stream->rcvvar->last_ack_seq = ack_seq;
+	}
+
+	/* Fast retransmission */
+	if (dup && cur_stream->rcvvar->dup_acks == 3) {
+		TRACE_LOSS("Triple duplicated ACKs!! ack_seq: %u\n", ack_seq);
+		if (TCP_SEQ_LT(ack_seq, cur_stream->snd_nxt)) {
+			TRACE_LOSS("Reducing snd_nxt from %u to %u\n", 
+					cur_stream->snd_nxt, ack_seq);
+#if RTM_STAT
+			sndvar->rstat.tdp_ack_cnt++;
+			sndvar->rstat.tdp_ack_bytes += (cur_stream->snd_nxt - ack_seq);
+#endif
+			if (ack_seq != sndvar->snd_una) {
+				TRACE_DBG("ack_seq and snd_una mismatch on tdp ack. "
+						"ack_seq: %u, snd_una: %u\n", 
+						ack_seq, sndvar->snd_una);
+			}
+			cur_stream->snd_nxt = ack_seq;
+		}
+
+		/* update congestion control variables */
+		/* ssthresh to half of min of cwnd and peer wnd */
+		sndvar->ssthresh = MIN(sndvar->cwnd, sndvar->peer_wnd) / 2;
+		if (sndvar->ssthresh < 2 * sndvar->mss) {
+			sndvar->ssthresh = 2 * sndvar->mss;
+		}
+		sndvar->cwnd = sndvar->ssthresh + 3 * sndvar->mss;
+		TRACE_CONG("Fast retransmission. cwnd: %u, ssthresh: %u\n", 
+				sndvar->cwnd, sndvar->ssthresh);
+
+		/* count number of retransmissions */
+		if (sndvar->nrtx < TCP_MAX_RTX) {
+			sndvar->nrtx++;
+		} else {
+			TRACE_DBG("Exceed MAX_RTX.\n");
+		}
+
+		AddtoSendList(mtcp, cur_stream);
+
+	} else if (cur_stream->rcvvar->dup_acks > 3) {
+		/* Inflate congestion window until before overflow */
+		if ((uint32_t)(sndvar->cwnd + sndvar->mss) > sndvar->cwnd) {
+			sndvar->cwnd += sndvar->mss;
+			TRACE_CONG("Dupack cwnd inflate. cwnd: %u, ssthresh: %u\n", 
+					sndvar->cwnd, sndvar->ssthresh);
+		}
+	}
+
+#if TCP_OPT_SACK_ENABLED
+	ParseSACKOption(cur_stream, ack_seq, (uint8_t *)tcph + TCP_HEADER_LEN, 
+			(tcph->doff << 2) - TCP_HEADER_LEN);
+	
 #endif /* TCP_OPT_SACK_ENABLED */
 
 #if RECOVERY_AFTER_LOSS

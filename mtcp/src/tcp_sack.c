@@ -158,6 +158,7 @@ RemoveSACKHole(struct tcp_stream* cur_stream,struct sackhole* hole){
  * to that (i.e. left edge moving) would also be considered a change in SACK
  * information which is slightly different than rfc6675.
  */
+int 
 UpdateScoreBoard(struct tcp_stream* cur_stream,uint32_t ack_seq) {
 	
 	struct sackhole* cur,* temp;
