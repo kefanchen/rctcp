@@ -609,27 +609,26 @@ ProcessACK_SACK(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_ts,
 	 */
 
 	dup = FALSE;
-	if (TCP_SEQ_LT(ack_seq, cur_stream->snd_nxt)) {
-		if (ack_seq == cur_stream->rcvvar->last_ack_seq && payloadlen == 0) {
-			if (cur_stream->rcvvar->snd_wl2 + sndvar->peer_wnd == right_wnd_edge) {
-				if (cur_stream->rcvvar->dup_acks + 1 > cur_stream->rcvvar->dup_acks) {
-					cur_stream->rcvvar->dup_acks++;
-				}
-				dup = TRUE;
-			}
-		}
-	}
 
 	//ckf mod
-	if(dup && cur_stream->sack_permit){
+	sackchanged = 0;
+	if(cur_stream->sack_permit){
+		ParseSACKOption(cur_stream, ack_seq, (uint8_t *)tcph + TCP_HEADER_LEN, 
+			(tcph->doff << 2) - TCP_HEADER_LEN);
 		sackchanged = UpdateScoreBoard(cur_stream,ack_seq);
-		if(sackchanged == 0){
-			dup = FALSE;
-
-			if(cur_stream->rcvvar->dup_acks > 0)
-				cur_stream->rcvvar->dup_ack -- ;
-		}
 	}
+
+	if( (  (TCP_SEQ_LT(ack_seq, cur_stream->snd_nxt)) &&
+		(ack_seq == cur_stream->rcvvar->last_ack_seq && payloadlen == 0) &&
+		(cur_stream->rcvvar->snd_wl2 + sndvar->peer_wnd == right_wnd_edge)
+		 ) || ( sackchanged )
+		){
+			dup = TRUE;
+			if (cur_stream->rcvvar->dup_acks + 1 > cur_stream->rcvvar->dup_acks) {
+				cur_stream->rcvvar->dup_acks++;
+			}
+	}
+//ckf  mod end
 
 	if (!dup) {
 		cur_stream->rcvvar->dup_acks = 0;
@@ -639,20 +638,25 @@ ProcessACK_SACK(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_ts,
 	/* Fast retransmission */
 	if (dup && cur_stream->rcvvar->dup_acks == 3) {
 		TRACE_LOSS("Triple duplicated ACKs!! ack_seq: %u\n", ack_seq);
-		if (TCP_SEQ_LT(ack_seq, cur_stream->snd_nxt)) {
-			TRACE_LOSS("Reducing snd_nxt from %u to %u\n", 
-					cur_stream->snd_nxt, ack_seq);
-#if RTM_STAT
-			sndvar->rstat.tdp_ack_cnt++;
-			sndvar->rstat.tdp_ack_bytes += (cur_stream->snd_nxt - ack_seq);
-#endif
-			if (ack_seq != sndvar->snd_una) {
-				TRACE_DBG("ack_seq and snd_una mismatch on tdp ack. "
-						"ack_seq: %u, snd_una: %u\n", 
-						ack_seq, sndvar->snd_una);
-			}
-			cur_stream->snd_nxt = ack_seq;
-		}
+// 		if (TCP_SEQ_LT(ack_seq, cur_stream->snd_nxt)) {
+// 			TRACE_LOSS("Reducing snd_nxt from %u to %u\n", 
+// 					cur_stream->snd_nxt, ack_seq);
+// #if RTM_STAT
+// 			sndvar->rstat.tdp_ack_cnt++;
+// 			sndvar->rstat.tdp_ack_bytes += (cur_stream->snd_nxt - ack_seq);
+// #endif
+// 			if (ack_seq != sndvar->snd_una) {
+// 				TRACE_DBG("ack_seq and snd_una mismatch on tdp ack. "
+// 						"ack_seq: %u, snd_una: %u\n", 
+// 						ack_seq, sndvar->snd_una);
+// 			}
+// 			cur_stream->snd_nxt = ack_seq;
+// 		}
+		//ckf mod
+		sndvar->in_fast_recovery = 1;
+		//sndvar->is_FR_	ackseg_rx = 0;
+		sndvar->recovery_end = cur_stream->snd_max;
+		cur_stream->snd_nxt = ack_seq;
 
 		/* update congestion control variables */
 		/* ssthresh to half of min of cwnd and peer wnd */
@@ -682,11 +686,7 @@ ProcessACK_SACK(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_ts,
 		}
 	}
 
-#if TCP_OPT_SACK_ENABLED
-	ParseSACKOption(cur_stream, ack_seq, (uint8_t *)tcph + TCP_HEADER_LEN, 
-			(tcph->doff << 2) - TCP_HEADER_LEN);
-	
-#endif /* TCP_OPT_SACK_ENABLED */
+
 
 #if RECOVERY_AFTER_LOSS
 	/* updating snd_nxt (when recovered from loss) */

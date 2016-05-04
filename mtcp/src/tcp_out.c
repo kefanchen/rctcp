@@ -437,6 +437,103 @@ SendTCPPacket(struct mtcp_manager *mtcp, tcp_stream *cur_stream,
 	return payloadlen;
 }
 /*----------------------------------------------------------------------------*/
+// static int
+// FlushTCPSendingBuffer(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_ts)
+// {
+// 	struct tcp_send_vars *sndvar = cur_stream->sndvar;
+// 	const uint32_t maxlen = sndvar->mss - CalculateOptionLength(TCP_FLAG_ACK);
+// 	uint8_t *data;
+// 	uint32_t buffered_len;
+// 	uint32_t seq;
+// 	uint16_t len;
+// 	int16_t sndlen;
+// 	uint32_t window;
+// 	int packets = 0;
+
+// 	if (!sndvar->sndbuf) {
+// 		TRACE_ERROR("Stream %d: No send buffer available.\n", cur_stream->id);
+// 		assert(0);
+// 		return 0;
+// 	}
+
+// 	SBUF_LOCK(&sndvar->write_lock);
+
+// 	if (sndvar->sndbuf->len == 0) {
+// 		packets = 0;
+// 		goto out;
+// 	}
+
+// 	window = MIN(sndvar->cwnd, sndvar->peer_wnd);
+
+// 	while (1) {
+// 		seq = cur_stream->snd_nxt;
+
+// 		if (TCP_SEQ_LT(seq, sndvar->sndbuf->head_seq)) {
+// 			TRACE_ERROR("Stream %d: Invalid sequence to send. "
+// 					"state: %s, seq: %u, head_seq: %u.\n", 
+// 					cur_stream->id, TCPStateToString(cur_stream), 
+// 					seq, sndvar->sndbuf->head_seq);
+// 			assert(0);
+// 			break;
+// 		}
+// 		buffered_len = sndvar->sndbuf->head_seq + sndvar->sndbuf->len - seq;
+// 		if (cur_stream->state > TCP_ST_ESTABLISHED) {
+// 			TRACE_FIN("head_seq: %u, len: %u, seq: %u, "
+// 					"buffered_len: %u\n", sndvar->sndbuf->head_seq, 
+// 					sndvar->sndbuf->len, seq, buffered_len);
+// 		}
+// 		if (buffered_len == 0)
+// 			break;
+
+// 		data = sndvar->sndbuf->head + 
+// 				(seq - sndvar->sndbuf->head_seq);
+
+// 		if (buffered_len > maxlen) {
+// 			len = maxlen;
+// 		} else {
+// 			len = buffered_len;
+// 		}
+		
+// 		if (len <= 0)
+// 			break;
+
+// 		if (cur_stream->state > TCP_ST_ESTABLISHED) {
+// 			TRACE_FIN("Flushing after ESTABLISHED: seq: %u, len: %u, "
+// 					"buffered_len: %u\n", seq, len, buffered_len);
+// 		}
+
+// 		if (seq - sndvar->snd_una + len > window) {
+// 			/* Ask for new window advertisement to peer */
+// 			if (seq - sndvar->snd_una + len > sndvar->peer_wnd) {
+// #if 0
+// 				TRACE_CLWND("Full peer window. "
+// 						"peer_wnd: %u, (snd_nxt-snd_una): %u\n", 
+// 						sndvar->peer_wnd, seq - sndvar->snd_una);
+// #endif
+// 				if (TS_TO_MSEC(cur_ts - sndvar->ts_lastack_sent) > 500) {
+// 					EnqueueACK(mtcp, cur_stream, cur_ts, ACK_OPT_WACK);
+// 				}
+// 			}
+// 			packets = -3;
+// 			goto out;
+// 		}
+	
+// 		sndlen = SendTCPPacket(mtcp, cur_stream, cur_ts, 
+// 				TCP_FLAG_ACK, data, len);
+// 		if (sndlen < 0) {
+// 			packets = sndlen;
+// 			goto out;
+// 		}
+// 		packets++;
+// 	}
+
+//  out:
+// 	SBUF_UNLOCK(&sndvar->write_lock);
+// 	return packets;
+// }
+/*----------------------------------------------------------------------------*/
+
+//ckf mod
 static int
 FlushTCPSendingBuffer(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_ts)
 {
@@ -449,6 +546,10 @@ FlushTCPSendingBuffer(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_
 	int16_t sndlen;
 	uint32_t window;
 	int packets = 0;
+	//ckf mod
+	struct sackhole* p;
+	int sack_bytes_rexmit = 0;
+	int awnd = 0;
 
 	if (!sndvar->sndbuf) {
 		TRACE_ERROR("Stream %d: No send buffer available.\n", cur_stream->id);
@@ -465,8 +566,111 @@ FlushTCPSendingBuffer(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_
 
 	window = MIN(sndvar->cwnd, sndvar->peer_wnd);
 
+	if(sndvar->in_fast_recovery ==1){
+		while(1){
+			// if(sndvar->isFR_ackset_rx == 0 ){
+			// 	seq = cur_stream->snd_nxt;
+			// 	sndvar->isFR_ackset_rx = 1;
+			// 	len = maxlen;
+			// }
+///////////// gurantee that first segment should be retransmitted in FR(aka snd_una) is the head of hole,so 
+			//no need to test
+			
+			if(p = NextUnSackSeg(cur_stream,&sack_bytes_rexmit)){
+				if(TCP_SEQ_GT(p->end,sndvar->recovery_end)){
+
+					//the hole beyond recovery point,cant not retransmit
+					if(TCP_SEQ_GEQ(p->rxmit, sndvar->recovery_end)){
+						break;
+					}
+					else{//can rexmit part of the hole
+						seq = p->rxmit;
+						//////////
+						 len = sndvar->recovery_end - p->rxmit;
+					}
+				}
+				else{
+					seq = p->rxmit;
+					len = p->end - p->rxmit;
+				}
+			}
+			else// no hole to send , can trasmit new data
+				break;
+			
+
+			if (TCP_SEQ_LT(seq, sndvar->sndbuf->head_seq)) {
+			TRACE_ERROR("Stream %d: Invalid sequence to send. "
+					"state: %s, seq: %u, head_seq: %u.\n", 
+					cur_stream->id, TCPStateToString(cur_stream), 
+					seq, sndvar->sndbuf->head_seq);
+			assert(0);
+			break;
+			}
+			buffered_len = sndvar->sndbuf->head_seq + sndvar->sndbuf->len - seq;
+			if (cur_stream->state > TCP_ST_ESTABLISHED) {
+				TRACE_FIN("head_seq: %u, len: %u, seq: %u, "
+						"buffered_len: %u\n", sndvar->sndbuf->head_seq, 
+						sndvar->sndbuf->len, seq, buffered_len);
+			}
+			if (buffered_len == 0)
+				break;
+
+			data = sndvar->sndbuf->head + 
+					(seq - sndvar->sndbuf->head_seq);
+
+			len = len > maxlen ? maxlen : len;
+			len = len > buffered_len ? buffered_len : len;
+
+			if (len <= 0)
+				break;
+
+			f (cur_stream->state > TCP_ST_ESTABLISHED) {
+				TRACE_FIN("Flushing after ESTABLISHED: seq: %u, len: %u, "
+						"buffered_len: %u\n", seq, len, buffered_len);
+			}
+
+			awnd = SetPipe(cur_stream);
+			if (awnd + len > window) {
+				/* Ask for new window advertisement to peer */
+				if (seq - sndvar->snd_una + len > sndvar->peer_wnd) {
+					if (TS_TO_MSEC(cur_ts - sndvar->ts_lastack_sent) > 500) {
+						EnqueueACK(mtcp, cur_stream, cur_ts, ACK_OPT_WACK);
+					}
+				}
+				packets = -3;
+				goto out;	//can not transmit anything
+			}
+	
+		sndlen = SendTCPPacket(mtcp, cur_stream, cur_ts, 
+				TCP_FLAG_ACK, data, len);
+		if (sndlen < 0) {
+			packets = sndlen;
+			goto out;
+		}
+		
+		packets++;
+		p->rxmit += len;
+		sndvar->sackhint.sack_bytes_rexmit += len;
+		}
+
+	}
+
+	//trasmit new data
+
 	while (1) {
 		seq = cur_stream->snd_nxt;
+
+		if(sndvar->in_fast_recovery ==1){
+			if(sndvar->isFR_ackset_rx == 0){
+				seq = cur_stream->snd_nxt;
+				sndvar->isFR_ackset_rx = 1;
+			}
+			else
+			{
+				if((p = NextUnSackSeg(cur_stream,&sack_bytes_rexmit)));
+					seq = p->rxmit;
+			}
+		}
 
 		if (TCP_SEQ_LT(seq, sndvar->sndbuf->head_seq)) {
 			TRACE_ERROR("Stream %d: Invalid sequence to send. "
@@ -531,7 +735,7 @@ FlushTCPSendingBuffer(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_
 	SBUF_UNLOCK(&sndvar->write_lock);
 	return packets;
 }
-/*----------------------------------------------------------------------------*/
+
 static inline int 
 SendControlPacket(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_ts)
 {
@@ -727,7 +931,7 @@ WriteTCPDataList(mtcp_manager_t mtcp,
 #if ACK_PIGGYBACK
 				if (cur_stream->sndvar->ack_cnt > 0) {
 					if (cur_stream->sndvar->ack_cnt > ret) {
-						cur_stream->sndvar->ack_cnt -= ret;
+						cur_stream->sndvar->ack_cnt -= ret;//ckf attention
 					} else {
 						cur_stream->sndvar->ack_cnt = 0;
 					}

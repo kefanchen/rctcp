@@ -215,6 +215,12 @@ struct tcp_send_vars
 	uint32_t snd_max; //last seq sent ,used in reocvery
 	//ckf add,sack hole in send buffer
 
+	//ckf add for fast recovery
+	uint8_t in_fast_recovery;
+	//uint8_t is_FR_ackseg_rx; //flag for whether the dup-ack-pointed segment retransmitted
+	uint32_t recovery_end; //when ack for recovery_end received, current FR is ended
+
+	//ckf add for fast recovery
 };
 
 typedef struct tcp_stream

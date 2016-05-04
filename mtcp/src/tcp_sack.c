@@ -73,7 +73,7 @@ UpdateSACKBlks(tcp_stream* cur_stream,uint32_t rcv_start,uint32_t rcv_end){
 
 //delete all receiver-side SACK information,sackblks
 void
-CleanSACKBlks(struct tcp_stream* cur_stream){
+CleanSACKBlks(tcp_stream* cur_stream){
 
 	int i;
 	struct tcp_recv_vars* rcvvar = cur_stream->rcvvar;
@@ -84,7 +84,7 @@ CleanSACKBlks(struct tcp_stream* cur_stream){
 }
 
 static struct sackhole* 
-AllocSACKHole(struct tcp_stream* cur_stream,uint32_t start,uint32_t end){
+AllocSACKHole(tcp_stream* cur_stream,uint32_t start,uint32_t end){
 	struct sackhole* hole;
 	struct tcp_send_vars* sndvar = cur_stream->sndvar;
 
@@ -107,7 +107,7 @@ AllocSACKHole(struct tcp_stream* cur_stream,uint32_t start,uint32_t end){
 }
 
 static void
-FreeSACKHole(struct tcp_stream* cur_stream,struct sackhole* hole){
+FreeSACKHole(tcp_stream* cur_stream,struct sackhole* hole){
 
 	free(hole);
 	hole = 0;
@@ -118,7 +118,7 @@ FreeSACKHole(struct tcp_stream* cur_stream,struct sackhole* hole){
 
 
 static struct sackhole*
-InsertSACKHole(struct tcp_stream* cur_stream,uint32_t start,uint32_t end,
+InsertSACKHole(tcp_stream* cur_stream,uint32_t start,uint32_t end,
 		struct sackhole* after){
 	
 	struct sackhole* hole;
@@ -140,7 +140,7 @@ InsertSACKHole(struct tcp_stream* cur_stream,uint32_t start,uint32_t end,
 }
 
 static void
-RemoveSACKHole(struct tcp_stream* cur_stream,struct sackhole* hole){
+RemoveSACKHole(tcp_stream* cur_stream,struct sackhole* hole){
 	
 	struct tcp_send_vars* sndvar = cur_stream->sndvar;
 
@@ -159,7 +159,7 @@ RemoveSACKHole(struct tcp_stream* cur_stream,struct sackhole* hole){
  * information which is slightly different than rfc6675.
  */
 int 
-UpdateScoreBoard(struct tcp_stream* cur_stream,uint32_t ack_seq) {
+UpdateScoreBoard(tcp_stream* cur_stream,uint32_t ack_seq) {
 	
 	struct sackhole* cur,* temp;
 	struct sackblk,sack_blocks[MAX_SACK_BLKS+1] *sblkp;
@@ -345,7 +345,7 @@ UpdateScoreBoard(struct tcp_stream* cur_stream,uint32_t ack_seq) {
 
 // free all sack holes to clear scoreboard
 void
-FreeScoreBoard(struct tcp_stream* cur_stream){
+FreeScoreBoard(tcp_stream* cur_stream){
 	struct sackhole* q;
 	struct tcp_send_vars* sndvar = cur_stream->sndvar;
 
@@ -380,7 +380,7 @@ FreeScoreBoard(struct tcp_stream* cur_stream){
  */
 
 struct sackhole*
-NextSegSack(struct tcp_stream* cur_stream,int *sack_bytes_rexmit){
+NextUnSackSeg(tcp_stream* cur_stream,int *sack_bytes_rexmit){
 
 	struct sackhole* hole = NULL;
 	struct tcp_send_vars* sndvar = cur_stream->sndvar;
@@ -415,7 +415,7 @@ out:
  */
 //ckf need reconsideration
 void
-tcp_sack_adjust(struct tcp_stream * cur_stream){
+tcp_sack_adjust(tcp_stream * cur_stream){
 	
 	struct tcp_send_vars* sndvar = cur_stream->sndvar;
 	struct sackhole* p,* cur = TAILQ_FIRST(&sndvar->snd_holes);
@@ -447,4 +447,12 @@ tcp_sack_adjust(struct tcp_stream * cur_stream){
 		return;
 	cur_stream->snd_nxt = sndvar->snd_fack;
 
+}
+
+int
+SetPipe(tcp_stream* cur_stream){
+	struct tcp_send_vars* sndvar = cur_stream->sndvar;
+	return (sndvar->snd_max - sndvar->snd_una +
+		sndvar->sackhint.sack_bytes_rexmit -
+		sndvar->sackhint.sacked_bytes);
 }
