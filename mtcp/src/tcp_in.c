@@ -81,6 +81,8 @@ HandleActiveOpen(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_ts,
 {
 	cur_stream->rcvvar->irs = seq;
 	cur_stream->snd_nxt = ack_seq;
+	//ckf  mod
+	cur_stream->sndvar->snd_max = ack_seq;
 	cur_stream->sndvar->peer_wnd = window;
 	cur_stream->rcvvar->snd_wl1 = cur_stream->rcvvar->irs - 1;
 	cur_stream->rcv_nxt = cur_stream->rcvvar->irs + 1;
@@ -630,10 +632,22 @@ ProcessACK_SACK(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_ts,
 	}
 //ckf  mod end
 
+	//ckf mod
 	if (!dup) {
-		cur_stream->rcvvar->dup_acks = 0;
-		cur_stream->rcvvar->last_ack_seq = ack_seq;
+		if (TCP_SEQ_GT(ack_seq,cur_stream->rcvvar->last_ack_seq))
+			cur_stream->rcvvar->last_ack_seq = ack_seq;
 	}
+
+	//ckf ,end of fast recovery
+	if(sndvar->in_fast_recovery== 1 && TCP_SEQ_GEG(ack_seq,sndvar->recovery_end)){
+		cur_stream->rcvvar->dup_acks = 0;
+		sndvar->in_fast_recovery = 0;
+
+		if (TCP_SEQ_GT(ack_seq,cur_stream->rcvvar->last_ack_seq))
+			cur_stream->rcvvar->last_ack_seq = ack_seq;
+		// scoreboard?  2016/5/5
+	}
+
 
 	/* Fast retransmission */
 	if (dup && cur_stream->rcvvar->dup_acks == 3) {
@@ -654,7 +668,6 @@ ProcessACK_SACK(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_ts,
 // 		}
 		//ckf mod
 		sndvar->in_fast_recovery = 1;
-		//sndvar->is_FR_	ackseg_rx = 0;
 		sndvar->recovery_end = cur_stream->snd_max;
 		cur_stream->snd_nxt = ack_seq;
 
@@ -678,12 +691,13 @@ ProcessACK_SACK(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_ts,
 		AddtoSendList(mtcp, cur_stream);
 
 	} else if (cur_stream->rcvvar->dup_acks > 3) {
-		/* Inflate congestion window until before overflow */
-		if ((uint32_t)(sndvar->cwnd + sndvar->mss) > sndvar->cwnd) {
-			sndvar->cwnd += sndvar->mss;
-			TRACE_CONG("Dupack cwnd inflate. cwnd: %u, ssthresh: %u\n", 
-					sndvar->cwnd, sndvar->ssthresh);
-		}
+		//ckf ,whether inflate the snd cwnd? RFC6675 not,
+		// if ((uint32_t)(sndvar->cwnd + sndvar->mss) > sndvar->cwnd) {
+		// 	sndvar->cwnd += sndvar->mss;
+		// 	TRACE_CONG("Dupack cwnd inflate. cwnd: %u, ssthresh: %u\n", 
+		// 			sndvar->cwnd, sndvar->ssthresh);
+		// }
+		AddtoSendList(mtcp, cur_stream);
 	}
 
 
@@ -1026,6 +1040,7 @@ Handle_TCP_ST_SYN_SENT (mtcp_manager_t mtcp, uint32_t cur_ts,
 			cur_stream->state = TCP_ST_SYN_RCVD;
 			TRACE_STATE("Stream %d: TCP_ST_SYN_RCVD\n", cur_stream->id);
 			cur_stream->snd_nxt = cur_stream->sndvar->iss;
+			
 			AddtoControlList(mtcp, cur_stream, cur_ts);
 		}
 	}
@@ -1053,6 +1068,8 @@ Handle_TCP_ST_SYN_RCVD (mtcp_manager_t mtcp, uint32_t cur_ts,
 
 		sndvar->snd_una++;
 		cur_stream->snd_nxt = ack_seq;
+		//ckf mod
+		cur_stream->sndvar->snd_max = ack_seq;
 		prior_cwnd = sndvar->cwnd;
 		sndvar->cwnd = ((prior_cwnd == 1)? 
 				(sndvar->mss * 2): sndvar->mss);
@@ -1091,6 +1108,8 @@ Handle_TCP_ST_SYN_RCVD (mtcp_manager_t mtcp, uint32_t cur_ts,
 				cur_stream->id);
 		/* retransmit SYN/ACK */
 		cur_stream->snd_nxt = sndvar->iss;
+		//ckf mod
+		//sndvar->snd_max = sndvar->iss;
 		AddtoControlList(mtcp, cur_stream, cur_ts);
 	}
 }
@@ -1249,6 +1268,9 @@ Handle_TCP_ST_FIN_WAIT_1 (mtcp_manager_t mtcp, uint32_t cur_ts,
 				TRACE_DBG("Stream %d: update snd_nxt to %u\n", 
 						cur_stream->id, ack_seq);
 				cur_stream->snd_nxt = ack_seq;
+				//ckf mod
+				if(TCP_SEQ_GT(cur_stream->snd_nxt,cur_stream->sndvar->snd_max))
+					cur_stream->sndvar->snd_max = cur_stream->snd_nxt;
 			}
 			//cur_stream->sndvar->snd_una++;
 			//UpdateRetransmissionTimer(mtcp, cur_stream, cur_ts);
@@ -1380,6 +1402,10 @@ Handle_TCP_ST_CLOSING (mtcp_manager_t mtcp, uint32_t cur_ts,
 		
 		cur_stream->sndvar->snd_una = ack_seq;
 		cur_stream->snd_nxt = ack_seq;
+		//ckf mod
+		if(TCP_SEQ_GT(cur_stream->snd_nxt,cur_stream->sndvar->snd_max))
+					cur_stream->sndvar->snd_max = cur_stream->snd_nxt;
+
 		UpdateRetransmissionTimer(mtcp, cur_stream, cur_ts);
 
 		cur_stream->state = TCP_ST_TIME_WAIT;

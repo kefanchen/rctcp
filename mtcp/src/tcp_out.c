@@ -414,9 +414,15 @@ SendTCPPacket(struct mtcp_manager *mtcp, tcp_stream *cur_stream,
 #endif
 
 	cur_stream->snd_nxt += payloadlen;
+	//ckf mod
+	if(TCP_SEQ_GT(cur_stream->snd_nxt,cur_stream->sndvar->snd_max))
+					cur_stream->sndvar->snd_max = cur_stream->snd_nxt;
 
 	if (tcph->syn || tcph->fin) {
 		cur_stream->snd_nxt++;
+		//ckf mod
+		if(TCP_SEQ_GT(cur_stream->snd_nxt,cur_stream->sndvar->snd_max))
+					cur_stream->sndvar->snd_max = cur_stream->snd_nxt;
 		payloadlen++;
 	}
 
@@ -568,11 +574,7 @@ FlushTCPSendingBuffer(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_
 
 	if(sndvar->in_fast_recovery ==1){
 		while(1){
-			// if(sndvar->isFR_ackset_rx == 0 ){
-			// 	seq = cur_stream->snd_nxt;
-			// 	sndvar->isFR_ackset_rx = 1;
-			// 	len = maxlen;
-			// }
+
 ///////////// gurantee that first segment should be retransmitted in FR(aka snd_una) is the head of hole,so 
 			//no need to test
 			
@@ -742,6 +744,8 @@ SendControlPacket(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_ts)
 	} else if (cur_stream->state == TCP_ST_SYN_RCVD) {
 		/* Send SYN/ACK here */
 		cur_stream->snd_nxt = sndvar->iss;
+		//ckf mod
+		sndvar->snd_max = sndvar->iss;
 		ret = SendTCPPacket(mtcp, cur_stream, cur_ts, 
 				TCP_FLAG_SYN | TCP_FLAG_ACK, NULL, 0);
 

@@ -264,6 +264,8 @@ CreateTCPStream(mtcp_manager_t mtcp, socket_map_t socket, int type,
 	stream->rcvvar->irs = 0;
 
 	stream->snd_nxt = stream->sndvar->iss;
+	//ckf mod
+	stream->sndvar->snd_max = stream->sndvar->iss;
 	stream->sndvar->snd_una = stream->sndvar->iss;
 	stream->sndvar->snd_wnd = CONFIG.sndbuf_size;
 	stream->rcv_nxt = 0;
