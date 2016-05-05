@@ -632,7 +632,7 @@ FlushTCPSendingBuffer(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_
 			awnd = SetPipe(cur_stream);
 			if (awnd + len > window) {
 				/* Ask for new window advertisement to peer */
-				if (seq - sndvar->snd_una + len > sndvar->peer_wnd) {
+				if (awnd + len > sndvar->peer_wnd) {
 					if (TS_TO_MSEC(cur_ts - sndvar->ts_lastack_sent) > 500) {
 						EnqueueACK(mtcp, cur_stream, cur_ts, ACK_OPT_WACK);
 					}
@@ -640,7 +640,8 @@ FlushTCPSendingBuffer(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_
 				packets = -3;
 				goto out;	//can not transmit anything
 			}
-	
+		
+		cur_stream->snd_nxt = seq;
 		sndlen = SendTCPPacket(mtcp, cur_stream, cur_ts, 
 				TCP_FLAG_ACK, data, len);
 		if (sndlen < 0) {
@@ -658,20 +659,10 @@ FlushTCPSendingBuffer(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_
 	//trasmit new data
 
 	while (1) {
-		seq = cur_stream->snd_nxt;
+		//ckf mod
+		seq = cur_stream->snd_max;
 
-		if(sndvar->in_fast_recovery ==1){
-			if(sndvar->isFR_ackset_rx == 0){
-				seq = cur_stream->snd_nxt;
-				sndvar->isFR_ackset_rx = 1;
-			}
-			else
-			{
-				if((p = NextUnSackSeg(cur_stream,&sack_bytes_rexmit)));
-					seq = p->rxmit;
-			}
-		}
-
+		
 		if (TCP_SEQ_LT(seq, sndvar->sndbuf->head_seq)) {
 			TRACE_ERROR("Stream %d: Invalid sequence to send. "
 					"state: %s, seq: %u, head_seq: %u.\n", 
@@ -706,9 +697,10 @@ FlushTCPSendingBuffer(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_
 					"buffered_len: %u\n", seq, len, buffered_len);
 		}
 
-		if (seq - sndvar->snd_una + len > window) {
+		awnd = SetPipe(cur_stream);
+		if (awnd + len > window) {
 			/* Ask for new window advertisement to peer */
-			if (seq - sndvar->snd_una + len > sndvar->peer_wnd) {
+			if (awnd + len > sndvar->peer_wnd) {
 #if 0
 				TRACE_CLWND("Full peer window. "
 						"peer_wnd: %u, (snd_nxt-snd_una): %u\n", 
@@ -721,7 +713,8 @@ FlushTCPSendingBuffer(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_
 			packets = -3;
 			goto out;
 		}
-	
+		
+		cur_stream->snd_nxt = seq;
 		sndlen = SendTCPPacket(mtcp, cur_stream, cur_ts, 
 				TCP_FLAG_ACK, data, len);
 		if (sndlen < 0) {
