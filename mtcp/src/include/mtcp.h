@@ -45,7 +45,7 @@
 #define ETH_NUM 4
 
 #define TCP_OPT_TIMESTAMP_ENABLED   TRUE
-#define TCP_OPT_SACK_ENABLED        FALSE
+#define TCP_OPT_SACK_ENABLED        TRUE
 
 #define E_PSIO				TRUE
 #define USE_CHUNK_BUF		FALSE

@@ -626,7 +626,7 @@ FlushTCPSendingBuffer(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_
 			if (len <= 0)
 				break;
 
-			f (cur_stream->state > TCP_ST_ESTABLISHED) {
+			if (cur_stream->state > TCP_ST_ESTABLISHED) {
 				TRACE_FIN("Flushing after ESTABLISHED: seq: %u, len: %u, "
 						"buffered_len: %u\n", seq, len, buffered_len);
 			}

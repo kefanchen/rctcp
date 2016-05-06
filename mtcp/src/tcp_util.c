@@ -92,13 +92,15 @@ ParseTCPTimestamp(tcp_stream *cur_stream,
 }
 #if TCP_OPT_SACK_ENABLED
 /*----------------------------------------------------------------------------*/
-void 
+int
 ParseSACKOption(tcp_stream *cur_stream, 
 		uint32_t ack_seq, uint8_t *tcpopt, int len)
 {
 	int i, j;
 	unsigned int opt, optlen;
 	uint32_t left_edge, right_edge;
+	int ret;
+	ret = FALSE;
 
 	for (i = 0; i < len; ) {
 		opt = *(tcpopt + i++);
@@ -115,6 +117,8 @@ ParseSACKOption(tcp_stream *cur_stream,
 
 			if (opt == TCP_OPT_SACK) {
 				j = 0;
+				ret = TRUE;
+				cur_stream->rcvvar->sackblk_num_peer = 0;
 				while (j < optlen - 2) {
 					left_edge = ntohl(*(uint32_t *)(tcpopt + i + j));
 					right_edge = ntohl(*(uint32_t *)(tcpopt + i + j + 4));
@@ -151,6 +155,7 @@ ParseSACKOption(tcp_stream *cur_stream,
 			}
 		}
 	}
+	return ret;
 }
 #endif /* TCP_OPT_SACK_ENABLED */
 /*---------------------------------------------------------------------------*/
