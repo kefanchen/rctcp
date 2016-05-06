@@ -298,7 +298,7 @@ HandleRTO(mtcp_manager_t mtcp, uint32_t cur_ts, tcp_stream *cur_stream)
 	}
 	
 	cur_stream->snd_nxt = cur_stream->sndvar->snd_una;
-	//ckf todo recover_end
+	//ckf todo recover_end,end FR ,reset FR variable
 	if (cur_stream->state == TCP_ST_ESTABLISHED || 
 			cur_stream->state == TCP_ST_CLOSE_WAIT) {
 		/* retransmit data at ESTABLISHED state */

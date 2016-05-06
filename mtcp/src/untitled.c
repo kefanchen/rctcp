@@ -167,8 +167,9 @@ FlushTCPSendingBuffer(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_
 
 
 // transmit previously unsent data
+// can be in recovery
 	while(1){
-		seq = 
+		seq = sndvar->snd_max;//?
 	}
 
 
