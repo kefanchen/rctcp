@@ -1214,7 +1214,7 @@ static inline void
 RecordSACKOption(tcp_stream* cur_stream){
 	if(cur_stream->rcvvar->sack_on ==1){
 		struct sackoption* sackopt;
-		if(batched_sackoption_num < MAX_BATCHED_SACKOPTION){
+		if(cur_stream->rcvvar->batched_sackoption_num < MAX_BATCHED_SACKOPTION){
 			cur_stream->rcvvar->sack_on = 0;
 			sackopt = (struct sackoption*)malloc(sizeof(struct sackoption));
 			if(sackopt){
@@ -1223,6 +1223,7 @@ RecordSACKOption(tcp_stream* cur_stream){
 				sackopt->sackblk_num = cur_stream->rcvvar->sackblk_num;
 				TAILQ_INSERT_TAIL(&cur_stream->rcvvar->batched_sackoptions,
 					sackopt,solink);
+				cur_stream->rcvvar->batched_sackoption_num ++ ;
 				cur_stream->rcvvar->ack_cnt_to_sack_opt[cur_stream->sndvar->ack_cnt]
 				=1;
 

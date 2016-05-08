@@ -8,7 +8,7 @@
 void
 UpdateSACKBlks(tcp_stream* cur_stream,uint32_t rcv_start,uint32_t rcv_end){
 	struct tcp_recv_vars *rcvvar = cur_stream->rcvvar;
-	struct head_blk,saved_blks[MAX_SACK_BLKS];
+	struct sackblk head_blk,saved_blks[MAX_SACK_BLKS];
 
 	int num_head,num_saved,i;
 
@@ -186,7 +186,7 @@ UpdateScoreBoard(tcp_stream* cur_stream,uint32_t ack_seq) {
 	 */
 
 	 sndvar->sackhint.sacked_bytes = 0; //reset
-	 for(i=0; i<sackblk_num_peer; i++){
+	 for(i=0; i<rcvvar->sackblk_num_peer; i++){
 		sack = rcvvar->sackblks_from_peer[i];
 
 		if(TCP_SEQ_GT(sack.end,sack.start)&&

@@ -43,8 +43,8 @@ struct sackhole{
 
 struct sackhint{
 	struct sackhole *nexthole;
-	int sack_bytes_rxmit; //sacked bytes which has been rxmitted
-	uint32_t last_sack_ack; //most recent/largest sacked ack seq
+	int sack_bytes_rexmit; //sacked bytes which has been rxmitted
+	//uint32_t last_sack_ack; //most recent/largest sacked ack seq
 
 	int ispare; //explicit pad for 64bit alignment
 	int sacked_bytes; //total sacked bytes reported by the sack option
