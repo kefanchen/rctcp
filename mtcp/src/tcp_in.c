@@ -661,7 +661,7 @@ ProcessACK_SACK(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_ts,
 
 		//ckf mod
 		sndvar->in_fast_recovery = 1;
-		sndvar->recovery_end = cur_stream->snd_max;
+		sndvar->recovery_end = sndvar->snd_max;
 		cur_stream->snd_nxt = ack_seq;
 
 		/* update congestion control variables */

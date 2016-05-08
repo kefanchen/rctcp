@@ -302,6 +302,13 @@ HandleRTO(mtcp_manager_t mtcp, uint32_t cur_ts, tcp_stream *cur_stream)
 	if (cur_stream->state == TCP_ST_ESTABLISHED || 
 			cur_stream->state == TCP_ST_CLOSE_WAIT) {
 		/* retransmit data at ESTABLISHED state */
+		//ckf mod
+		cur_stream->sndvar->recovery_end = cur_stream->sndvar->snd_max;
+		if(cur_stream->sndvar->in_fast_recovery == 1) {
+			cur_stream->sndvar->in_fast_recovery = 0;
+			cur_stream->rcvvar->dup_acks = 0;
+		}
+
 		AddtoSendList(mtcp, cur_stream);
 
 	} else if (cur_stream->state == TCP_ST_FIN_WAIT_1 || 
