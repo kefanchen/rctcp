@@ -855,7 +855,7 @@ ProcessTCPPayload(mtcp_manager_t mtcp, tcp_stream *cur_stream,
 
 	SBUF_UNLOCK(&rcvvar->read_lock);
 
-	if (TCP_SEQ_LEQ(cur_stream->rcv_nxt, prev_rcv_nxt)) {
+	if (TCP_SEQ_LEQ(cur_stream->rcv_nxt, prev_rcv_nxt) && ret >0) {
 		
 		//ckf mod 
 		//if  there exists gap in rcv buffer,generate sack

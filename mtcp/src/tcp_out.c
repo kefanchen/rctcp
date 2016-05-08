@@ -140,7 +140,7 @@ GenerateSACKOption(tcp_stream* cur_stream,uint8_t* tcpopt){
 		uint32_t* edge = (uint32_t*)(tcpopt + 2);
 		int i = 0;
 		tcpopt[0] = TCP_OPT_SACK;
-		tcpopt[1] = TCP_OPT_SACK_LEN;
+		//tcpopt[1] = TCP_OPT_SACK_LEN;
 		while(i < sackopt->sackblk_num){
 			edge[0 + (i << 1)] = htonl(sack->sackblks[i].start);
 			edge[1 + (i << 1)] = htonl(sack->sackblks[i].end);
@@ -149,15 +149,18 @@ GenerateSACKOption(tcp_stream* cur_stream,uint8_t* tcpopt){
 		}
 
 		TAILQ_REMOVE(&cur_stream->rcvvar->batched_sackoptions,sackopt,solink);
-		free(sack);
-		sack = 0;
+		free(sackopt);
+		sackopt = 0;
 		cur_stream->rcvvar->batched_sackoption_num -- ;
 		switch(i){
 			case 1:
+				tcpopt[1] = TCP_OPT_SACK_LEN1;
 				return TCP_OPT_SACK_LEN1 + 2;
 			case 2:
+				tcpopt[1] = TCP_OPT_SACK_LEN2;
 				return TCP_OPT_SACK_LEN2 + 2;
 			case 3:
+				tcpopt[1] = TCP_OPT_SACK_LEN3;
 				return TCP_OPT_SACK_LEN3 + 2;
 
 		}
