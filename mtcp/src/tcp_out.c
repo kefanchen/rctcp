@@ -8,6 +8,8 @@
 #include "timer.h"
 #include "debug.h"
 
+#include "tcp_sack.h"
+
 #define TCP_CALCULATE_CHECKSUM      TRUE
 #define ACK_PIGGYBACK				TRUE
 #define TRY_SEND_BEFORE_QUEUE		FALSE
@@ -543,6 +545,15 @@ SendTCPPacket(struct mtcp_manager *mtcp, tcp_stream *cur_stream,
 /*----------------------------------------------------------------------------*/
 
 //ckf mod
+
+int
+SetPipe(tcp_stream* cur_stream){
+	struct tcp_send_vars* sndvar = cur_stream->sndvar;
+	return (sndvar->snd_max - sndvar->snd_una +
+		sndvar->sackhint.sack_bytes_rexmit -
+		sndvar->sackhint.sacked_bytes);
+}
+
 static int
 FlushTCPSendingBuffer(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_ts)
 {

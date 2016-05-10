@@ -9,6 +9,8 @@
 #include "timer.h"
 #include "ip_in.h"
 
+#include "tcp_sack.h"
+
 #define MAX(a, b) ((a)>(b)?(a):(b))
 #define MIN(a, b) ((a)<(b)?(a):(b))
 

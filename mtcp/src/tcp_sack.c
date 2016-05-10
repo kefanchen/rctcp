@@ -1,4 +1,7 @@
-#include"tcp_sttream.h"
+#include"tcp_stream.h"
+#include"tcp_in.h"
+#include<stdlib.h>
+
 
 /*
  * when receive non-contiguous segment,need to update sackblks
@@ -414,45 +417,38 @@ out:
  * traverses the SACK list to see if snd_nxt should be moved forward.
  */
 //ckf need reconsideration
-void
-tcp_sack_adjust(tcp_stream * cur_stream){
+// void
+// tcp_sack_adjust(tcp_stream * cur_stream){
 	
-	struct tcp_send_vars* sndvar = cur_stream->sndvar;
-	struct sackhole* p,* cur = TAILQ_FIRST(&sndvar->snd_holes);
+// 	struct tcp_send_vars* sndvar = cur_stream->sndvar;
+// 	struct sackhole* p,* cur = TAILQ_FIRST(&sndvar->snd_holes);
 
-	if(cur == NULL)
-		return;
-	if(TCP_SEQ_GEQ(cur_stream->snd_nxt,sndvar->snd_fack))
-		return ;
+// 	if(cur == NULL)
+// 		return;
+// 	if(TCP_SEQ_GEQ(cur_stream->snd_nxt,sndvar->snd_fack))
+// 		return ;
 
-	/*-
-	 * Two cases for which we want to advance snd_nxt:
-	 * i) snd_nxt lies between end of one hole and beginning of another
-	 * ii) snd_nxt lies between end of last hole and snd_fack
-	 */
-	while((p = TAILQ_NEXT(cur,scblink))!=NULL){
+// 	-
+// 	 * Two cases for which we want to advance snd_nxt:
+// 	 * i) snd_nxt lies between end of one hole and beginning of another
+// 	 * ii) snd_nxt lies between end of last hole and snd_fack
+	 
+// 	while((p = TAILQ_NEXT(cur,scblink))!=NULL){
 		
-		if(TCP_SEQ_LT(cur_stream->snd_nxt,cur->end))
-			return;
+// 		if(TCP_SEQ_LT(cur_stream->snd_nxt,cur->end))
+// 			return;
 
-		if(TCP_SEQ_GEQ(cur_stream->snd_nxt,p->start))
-			cur = p;
-		else{
-			cur_stream->snd_nxt = p->start;
-			return ;
-		}
-	}
+// 		if(TCP_SEQ_GEQ(cur_stream->snd_nxt,p->start))
+// 			cur = p;
+// 		else{
+// 			cur_stream->snd_nxt = p->start;
+// 			return ;
+// 		}
+// 	}
 
-	if(TCP_SEQ_LT(cur_stream->snd_nxt,cur->end))
-		return;
-	cur_stream->snd_nxt = sndvar->snd_fack;
+// 	if(TCP_SEQ_LT(cur_stream->snd_nxt,cur->end))
+// 		return;
+// 	cur_stream->snd_nxt = sndvar->snd_fack;
 
-}
+// }
 
-int
-SetPipe(tcp_stream* cur_stream){
-	struct tcp_send_vars* sndvar = cur_stream->sndvar;
-	return (sndvar->snd_max - sndvar->snd_una +
-		sndvar->sackhint.sack_bytes_rexmit -
-		sndvar->sackhint.sacked_bytes);
-}
