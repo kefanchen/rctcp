@@ -25,7 +25,7 @@ UpdateSACKBlks(tcp_stream* cur_stream,uint32_t rcv_start,uint32_t rcv_end){
 	 * saved[]
 	 */
 	num_saved = 0;
-	for(i = 0;i<rcvvar->sackblk_num)
+	for(i = 0;i<rcvvar->sackblk_num;i++)
 	{
 		uint32_t start = rcvvar->sackblks[i].start;
 		uint32_t end = rcvvar->sackblks[i].end;
@@ -66,11 +66,11 @@ UpdateSACKBlks(tcp_stream* cur_stream,uint32_t rcv_start,uint32_t rcv_end){
 
 	if(num_saved > 0){
 		//copy the saved SACK blk back
-		memcopy(&rcvvar->sackblks[numhead],saved_blks,sizeof(struct sackblks)
-				 * num_saved);	
+		memcopy(&rcvvar->sackblks[num_head],saved_blks,sizeof(struct sackblk)
+				* num_saved);	
 	}
 
-	rcvvar->sackblk_num = numhead + num_saved;
+	rcvvar->sackblk_num = num_head + num_saved;
 
 }
 
@@ -165,7 +165,7 @@ int
 UpdateScoreBoard(tcp_stream* cur_stream,uint32_t ack_seq) {
 	
 	struct sackhole* cur,* temp;
-	struct sackblk,sack_blocks[MAX_SACK_BLKS+1] *sblkp;
+	struct sackblk sack,sack_blocks[MAX_SACK_BLKS+1] ,*sblkp;
 	struct tcp_send_vars* sndvar = cur_stream->sndvar;
 	struct tcp_recv_vars* rcvvar = cur_stream->rcvvar;
 	int i, j, num_sack_blks, sack_changed;
@@ -197,7 +197,7 @@ UpdateScoreBoard(tcp_stream* cur_stream,uint32_t ack_seq) {
 				TCP_SEQ_GT(sack.start,ack_seq)&&
 				TCP_SEQ_LT(sack.start,sndvar->snd_max)&&
 				TCP_SEQ_GT(sack.end,sndvar->snd_una)&&
-				TCP_SEQ_LEQ(sack.end,sndvar->snd_max)&&
+				TCP_SEQ_LEQ(sack.end,sndvar->snd_max)
 				){
 			sack_blocks[num_sack_blks++] = sack;
 		sndvar->sackhint.sacked_bytes += (sack.end - sack.start);
@@ -334,7 +334,7 @@ UpdateScoreBoard(tcp_stream* cur_stream,uint32_t ack_seq) {
 		
 		//for those who was rexmitted and just got sacked,exclude!
 		//they are no longer in flight
-		sndvar->sackhint.sack_bytes_rexmit += (cur->rxmit - cur=>start);
+		sndvar->sackhint.sack_bytes_rexmit += (cur->rxmit - cur->start);
 
 		if(TCP_SEQ_LEQ(sblkp->start, cur->start))
 			cur = TAILQ_PREV(cur,sackhole_head,scblink);
@@ -352,7 +352,7 @@ FreeScoreBoard(tcp_stream* cur_stream){
 	struct sackhole* q;
 	struct tcp_send_vars* sndvar = cur_stream->sndvar;
 
-	while((q = TAILQ_FIRST(&sndvar->sndholes))!=NULL)
+	while((q = TAILQ_FIRST(&sndvar->snd_holes))!=NULL)
 		RemoveSACKHole(cur_stream,q);
 
 	assert(sndvar->snd_numholes == 0);
@@ -395,7 +395,7 @@ NextUnSackSeg(tcp_stream* cur_stream,int *sack_bytes_rexmit){
 		goto out;
 
 	while((hole = TAILQ_NEXT(hole,scblink))!= NULL){
-		if(TCP_SEQ_LT(hoel->rxmit,hole->end)){
+		if(TCP_SEQ_LT(hole->rxmit,hole->end)){
 
 			sndvar->sackhint.nexthole = hole;
 			break;

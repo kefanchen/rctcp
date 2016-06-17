@@ -51,7 +51,7 @@ CalculateOptionLength(uint8_t flags)
 
 #if TCP_OPT_SACK_ENABLED
 		if (flags & TCP_FLAG_SACK) {
-			optlen += TCP_OPT_SACK_LEN + 2;
+			optlen += TCP_OPT_SACK_LEN1 + 2;
 		}
 #endif
 	}
@@ -94,8 +94,8 @@ CalculateOptionSACKLength(tcp_stream* cur_stream,uint8_t flags)
 
 #if TCP_OPT_SACK_ENABLED
 		if (flags & TCP_FLAG_SACK &&
-			!TAILQ_EMPTY(cur_stream->rcvvar->batched_sackoptions)) {
-			struct sackoption* sackopt = TAILQ_FIRST(cur_stream->rcvva->batched_sackoptions);
+			!TAILQ_EMPTY(&cur_stream->rcvvar->batched_sackoptions)) {
+			struct sackoption* sackopt = TAILQ_FIRST(&cur_stream->rcvvar->batched_sackoptions);
 			switch(sackopt->sackblk_num){
 				case 1:
 					optlen += TCP_OPT_SACK_LEN1 + 2;
@@ -144,8 +144,8 @@ GenerateSACKOption(tcp_stream* cur_stream,uint8_t* tcpopt){
 		tcpopt[0] = TCP_OPT_SACK;
 		//tcpopt[1] = TCP_OPT_SACK_LEN;
 		while(i < sackopt->sackblk_num){
-			edge[0 + (i << 1)] = htonl(sack->sackblks[i].start);
-			edge[1 + (i << 1)] = htonl(sack->sackblks[i].end);
+			edge[0 + (i << 1)] = htonl(sackopt->sackblks[i].start);
+			edge[1 + (i << 1)] = htonl(sackopt->sackblks[i].end);
 
 			i++;
 		}
@@ -676,7 +676,7 @@ FlushTCPSendingBuffer(mtcp_manager_t mtcp, tcp_stream *cur_stream, uint32_t cur_
 
 	while (1) {
 		//ckf mod
-		seq = cur_stream->snd_max;
+		seq = cur_stream->sndvar->snd_max;
 
 		
 		if (TCP_SEQ_LT(seq, sndvar->sndbuf->head_seq)) {
@@ -1031,7 +1031,7 @@ WriteTCPACKList(mtcp_manager_t mtcp,
 
 					if(cur_stream->rcvvar->ack_cnt_to_sack_opt[i] == 1){
 						ret = SendTCPPacket(mtcp, cur_stream, 
-							cur_ts, TCP_FLAG_ACK|TCP_FLAG_SACK), NULL, 0);
+							cur_ts, TCP_FLAG_ACK|TCP_FLAG_SACK, NULL, 0);
 						cur_stream->rcvvar->ack_cnt_to_sack_opt[i] = 0;
 					}
 					else

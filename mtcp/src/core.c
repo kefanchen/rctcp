@@ -24,6 +24,9 @@
 #include "timer.h"
 #include "debug.h"
 
+//
+#include "tcp_stream.h"
+
 #ifndef DISABLE_DPDK
 /* for launching rte thread */
 #include <rte_launch.h>

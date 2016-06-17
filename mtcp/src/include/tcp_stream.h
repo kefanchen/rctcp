@@ -55,9 +55,10 @@ struct sackhint{
 
 struct sackoption
 {
+#define MAX_SACK_BLKS 4  
 	struct sackblk sackblks[MAX_SACK_BLKS];
 	int sackblk_num;
-	TAILQ_ENTRY(sackoptions)  solink;
+	TAILQ_ENTRY(sackoption)  solink;
 };
 
 struct tcp_recv_vars
@@ -93,7 +94,7 @@ struct tcp_recv_vars
 //#endif /* TCP_OPT_SACK_ENABLED */
 
 //****ckf,add sack
- #define MAX_SACK_BLKS 4
+// #define MAX_SACK_BLKS 4
 	//sack blks generated from own receive buffer
 	uint8_t  sack_on; 	//1 if there are gaps in rcv buffer
 	struct sackblk sackblks[MAX_SACK_BLKS];

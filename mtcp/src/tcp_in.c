@@ -850,7 +850,7 @@ ProcessTCPPayload(mtcp_manager_t mtcp, tcp_stream *cur_stream,
 	update  sackblks(used to send sack option)
 	*/
 	if(cur_stream->state ==  TCP_ST_ESTABLISHED && ret >0)
-		UpdateSACKBlks(cur_stream ,seq, seq + payloadlen ;)
+		UpdateSACKBlks(cur_stream ,seq, seq + payloadlen );
 
 	cur_stream->rcv_nxt = rcvvar->rcvbuf->head_seq + rcvvar->rcvbuf->merged_len;
 	rcvvar->rcv_wnd = rcvvar->rcvbuf->size - 1 - rcvvar->rcvbuf->last_len;
